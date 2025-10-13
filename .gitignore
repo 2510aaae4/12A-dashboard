@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+venv/
+.env
+error_screenshot.png
+manual_captcha.png
