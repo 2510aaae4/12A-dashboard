@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>12A 戰情看板 (v2)</title>
+    <style>
+        :root {
+            --color-bg: #f4f4f9;
+            --color-card: #ffffff;
+            --color-shadow: rgba(0,0,0,0.1);
+            --color-text: #333;
+            --color-primary: #007bff;
+            --long-stay-color: #9b59b6;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--color-bg);
+            margin: 0;
+            padding-top: 60px; /* Space for sticky header */
+            color: var(--color-text);
+        }
+        /* --- Sticky Header --- */
+        .global-summary-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background-color: var(--color-card);
+            box-shadow: 0 2px 5px var(--color-shadow);
+            padding: 0.75rem 1.5rem;
+            z-index: 100;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+        }
+        .global-stat {
+            text-align: center;
+        }
+        .global-stat .value { font-size: 1.5rem; font-weight: bold; }
+        .global-stat .label { font-size: 0.8rem; color: #666; }
+
+        .dashboard-container { padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; }
+        .summary-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+        .summary-card { background-color: var(--color-card); padding: 1.5rem; border-radius: 8px; box-shadow: 0 4px 6px var(--color-shadow); }
+        .summary-card h2 { margin-top: 0; font-size: 1.2rem; border-bottom: 2px solid var(--color-primary); padding-bottom: 0.5rem; margin-bottom: 1rem; }
+        
+        /* --- Collapsible Sections & Sorting --- */
+        details.physician-group { background-color: var(--color-card); border-radius: 8px; margin-bottom: 1rem; box-shadow: 0 4px 6px var(--color-shadow); }
+        details.physician-group summary {
+            padding: 1rem 1.5rem;
+            font-weight: bold;
+            font-size: 1.2rem;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .physician-group-content { padding: 0 1.5rem 1.5rem 1.5rem; }
+        .sort-controls { font-size: 0.9rem; font-weight: normal; }
+        .sort-controls select { margin-left: 0.5rem; font-size: 0.9rem; padding: 0.2rem; }
+
+        .ward-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1rem; }
+        .bed-card {
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 5px solid;
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+        .bed-card:hover { transform: translateY(-5px); box-shadow: 0 8px 12px var(--color-shadow); }
+        .mews-high { border-color: #d9534f; background-color: #ffdddd; }
+        .mews-medium { border-color: #f0ad4e; background-color: #fffbdd; }
+        .mews-low { border-color: #5cb85c; background-color: #ddffdd; }
+        .bed-card h3 { margin: 0 0 0.5rem 0; display: flex; justify-content: space-between; align-items: center; }
+        .bed-card p { margin: 0.25rem 0; font-size: 0.9rem; }
+        .dim { color: #666; }
+        .long-stay-icon { color: var(--long-stay-color); font-weight: bold; font-size: 1.2rem; }
+
+        .top-physicians-section { 
+            background-color: var(--color-card);
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px var(--color-shadow);
+        }
+        .top-physicians-section h2 { margin-top: 0; }
+        .top-physicians-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+        .physician-stat-card {
+            background-color: var(--color-bg);
+            padding: 1rem;
+            border-radius: 5px;
+        }
+        .physician-stat-card h3 { margin-top: 0; }
+        .physician-stat-card p { margin: 0.5rem 0; }
+
+        /* --- Modal --- */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 200; display: none; justify-content: center; align-items: center; }
+        .modal-content { background: white; padding: 2rem; border-radius: 8px; width: 90%; max-width: 600px; max-height: 80vh; overflow-y: auto; }
+        .modal-content h2 { margin-top: 0; }
+        .modal-close { float: right; font-size: 1.5rem; cursor: pointer; }
+        .modal-details-grid { display: grid; grid-template-columns: 1fr 2fr; gap: 0.5rem 1rem; }
+    </style>
+</head>
+<body>
+
+    <header class="global-summary-header" id="global-summary"></header>
+
+    <div class="dashboard-container">
+        <section class="top-physicians-section">
+            <h2>焦點醫師分析</h2>
+            <div class="top-physicians-grid">
+                {% for stat in top_physicians_stats %}
+                <div class="physician-stat-card">
+                    <h3>{{ stat.主治醫師 }}</h3>
+                    <p><strong>病患數量:</strong> {{ stat.patient_count }} 人</p>
+                    <p><strong>平均住院:</strong> {{ stat.avg_stay }} 天</p>
+                    <p><strong>高風險 (MEWS&ge;4):</strong> {{ stat.high_mews_count }} 人</p>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="summary-section">
+            <div class="summary-card">
+                <h2>主要主治醫師病患數</h2>
+                <div id="physician-summary"></div>
+            </div>
+            <div class="summary-card">
+                <h2>Primary Care 照顧病患數</h2>
+                <ul id="primary-care-summary" style="padding-left: 0; list-style: none;"></ul>
+            </div>
+        </section>
+
+        <section id="ward-groups-container"></section>
+    </div>
+
+    <!-- Modal Structure -->
+    <div class="modal-overlay" id="patient-modal">
+        <div class="modal-content">
+            <span class="modal-close" id="modal-close-btn">&times;</span>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <script>
+        const patients = {{ patients_json | safe }};
+        const physicians = {{ physicians | tojson }};
+        const primaryCareProviders = [...new Set(patients.map(p => p.照顧者))].sort();
+        const mainPhysicianNames = {{ main_physician_names | tojson }};
+        const LONG_STAY_THRESHOLD = 14;
+
+        // --- Main --- 
+        document.addEventListener('DOMContentLoaded', () => {
+            renderGlobalSummary();
+            renderGroupedWardGrid();
+            renderSummaries();
+            setupModal();
+        });
+
+        // --- Render Functions --- 
+        function renderGlobalSummary() {
+            const container = document.getElementById('global-summary');
+            const highRiskCount = patients.filter(p => p.MEWS >= 4).length;
+            const longestStay = Math.max(...patients.map(p => p.住院天數));
+
+            container.innerHTML = `
+                <div class="global-stat"><span class="value">${patients.length}</span><span class="label">病患總數</span></div>
+                <div class="global-stat"><span class="value">${highRiskCount}</span><span class="label">高風險 (MEWS>=4)</span></div>
+                <div class="global-stat"><span class="value">${longestStay}</span><span class="label">最長住院(天)</span></div>
+            `;
+        }
+
+        function renderGroupedWardGrid() {
+            const container = document.getElementById('ward-groups-container');
+            container.innerHTML = '';
+
+            const groupedByPhysician = patients.reduce((acc, p) => {
+                (acc[p.主治醫師] = acc[p.主治醫師] || []).push(p);
+                return acc;
+            }, {});
+
+            Object.keys(groupedByPhysician).sort().forEach((physicianName, index) => {
+                const group = groupedByPhysician[physicianName];
+                const details = document.createElement('details');
+                details.className = 'physician-group';
+                if (mainPhysicianNames.includes(physicianName)) details.open = true; // Open top 2 by default
+
+                details.innerHTML = `
+                    <summary>
+                        <span>${physicianName} (${group.length}人)</span>
+                        <span class="sort-controls">
+                            排序: 
+                            <select data-physician="${physicianName}">
+                                <option value="床號">床號</option>
+                                <option value="MEWS">MEWS</option>
+                                <option value="住院天數">住院天數</option>
+                            </select>
+                        </span>
+                    </summary>
+                    <div class="physician-group-content">
+                        <div class="ward-grid" id="grid-${physicianName}"></div>
+                    </div>
+                `;
+                container.appendChild(details);
+                renderCardsInGrid(physicianName, group, '床號');
+            });
+
+            container.addEventListener('change', (e) => {
+                if (e.target.tagName === 'SELECT') {
+                    const physician = e.target.dataset.physician;
+                    const sortBy = e.target.value;
+                    renderCardsInGrid(physician, groupedByPhysician[physician], sortBy);
+                }
+            });
+        }
+
+        function renderCardsInGrid(physicianName, patientList, sortBy) {
+            const grid = document.getElementById(`grid-${physicianName}`);
+            grid.innerHTML = '';
+
+            const sorters = {
+                '床號': (a, b) => a.床號.localeCompare(b.床號),
+                'MEWS': (a, b) => b.MEWS - a.MEWS,
+                '住院天數': (a, b) => b.住院天數 - a.住院天數,
+            };
+            patientList.sort(sorters[sortBy]);
+
+            patientList.forEach(p => {
+                const card = document.createElement('div');
+                card.className = `bed-card ${getMewsClass(p.MEWS)}`;
+                card.dataset.patientId = p.病歷號; // Use MRN as unique ID
+
+                const longStayIcon = p.住院天數 > LONG_STAY_THRESHOLD ? `<span class="long-stay-icon">⏰</span>` : '';
+                card.innerHTML = `
+                    <h3><span>${p.床號} - ${p.姓名}</span> ${longStayIcon}</h3>
+                    <p><strong>照顧者:</strong> ${p.照顧者}</p>
+                    <p><span class="dim">住院:</span> ${p.住院天數} 天</p>
+                    <p><span class="dim">MEWS:</span> ${p.MEWS}</p>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        // --- Summary & Selector Functions --- 
+        function renderSummaries() {
+            renderPhysicianSummary(mainPhysicianNames);
+            renderPrimaryCareSummary(mainPhysicianNames);
+        }
+
+        function renderPhysicianSummary(mainPhysicians) {
+            const summary = document.getElementById('physician-summary');
+            let html = mainPhysicians.map(name => `<p><strong>${name}:</strong> ${patients.filter(p => p.主治醫師 === name).length} 人</p>`).join('');
+            const guestCount = patients.length - patients.filter(p => mainPhysicians.includes(p.主治醫師)).length;
+            summary.innerHTML = `${html}<hr><p><strong>借床:</strong> ${guestCount} 人</p>`;
+        }
+
+        function renderPrimaryCareSummary(mainPhysicians) {
+            const summaryList = document.getElementById('primary-care-summary');
+            summaryList.innerHTML = '';
+            primaryCareProviders.forEach(provider => {
+                const patientsOfProvider = patients.filter(p => p.照顧者 === provider);
+                if (patientsOfProvider.length === 0) return;
+                let main = 0, guest = 0;
+                patientsOfProvider.forEach(p => mainPhysicians.includes(p.主治醫師) ? main++ : guest++);
+                summaryList.innerHTML += `<li><span>${provider}</span> <strong>${main + guest} 人 (主: ${main}, 借: ${guest})</strong></li>`;
+            });
+        }
+
+        // --- Modal Functions --- 
+        function setupModal() {
+            const modal = document.getElementById('patient-modal');
+            document.getElementById('modal-close-btn').addEventListener('click', () => modal.style.display = 'none');
+            modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+            document.getElementById('ward-groups-container').addEventListener('click', (e) => {
+                const card = e.target.closest('.bed-card');
+                if (card) openModal(card.dataset.patientId);
+            });
+        }
+
+        function openModal(patientId) {
+            const patient = patients.find(p => p.病歷號 == patientId);
+            if (!patient) return;
+
+            const modalBody = document.getElementById('modal-body');
+            let detailsHtml = `<h2>${patient.床號} - ${patient.姓名}</h2><div class="modal-details-grid">`;
+            for (const [key, value] of Object.entries(patient)) {
+                detailsHtml += `<strong>${key}</strong><span>${value || '-'}</span>`;
+            }
+            detailsHtml += `</div>`;
+            modalBody.innerHTML = detailsHtml;
+
+            document.getElementById('patient-modal').style.display = 'flex';
+        }
+
+        function getMewsClass(mews) {
+            if (mews >= 4) return 'mews-high';
+            if (mews >= 3) return 'mews-medium';
+            return 'mews-low';
+        }
+
+    </script>
+
+</body>
+</html>
