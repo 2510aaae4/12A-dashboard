@@ -8,7 +8,7 @@ app = Flask(__name__)
 def process_data():
     """Reads and processes the patient data from the CSV file."""
     try:
-        df = pd.read_csv("12A_patient_list_selenium.csv")
+        df = pd.read_csv("https://raw.githubusercontent.com/2510aaae4/12A-dashboard/refs/heads/main/12A_patient_list_selenium.csv")
     except FileNotFoundError:
         return None, None, None, None, {"error": "CSV file not found."}
 
